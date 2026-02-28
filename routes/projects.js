@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const prisma  = require('../lib/prisma');
+const logger  = require('../lib/logger');
 
 // GET /api/projects
 router.get('/', async (req, res) => {
@@ -8,6 +9,7 @@ router.get('/', async (req, res) => {
     const projects = await prisma.project.findMany({ orderBy: { created_at: 'asc' } });
     res.json(projects);
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -27,6 +29,7 @@ router.post('/', async (req, res) => {
     });
     res.status(201).json(project);
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -48,6 +51,7 @@ router.put('/:id', async (req, res) => {
     res.json(project);
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Not found' });
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -58,6 +62,7 @@ router.delete('/:id', async (req, res) => {
     await prisma.project.delete({ where: { id: req.params.id } });
     res.status(204).end();
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const prisma  = require('../lib/prisma');
+const logger  = require('../lib/logger');
 
 const EMPTY_SNAPSHOT = {
   productivity_pct: 0, projects_pct: 0, satisfaction_pts: 0, week_tracker_pct: 0,
@@ -32,6 +33,7 @@ router.get('/', async (req, res) => {
     });
     res.json(rows.map(r => toDateStr(r.snapshot_date)));
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -44,6 +46,7 @@ router.get('/:date', async (req, res) => {
     });
     res.json(snapshot ? withComputedFields(snapshot) : { snapshot_date: req.params.date, ...EMPTY_SNAPSHOT });
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -87,6 +90,7 @@ router.put('/:date', async (req, res) => {
     });
     res.json(withComputedFields(snapshot));
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });

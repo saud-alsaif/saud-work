@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const prisma  = require('../lib/prisma');
+const logger  = require('../lib/logger');
 
 const toDateStr = (d) =>
   d instanceof Date ? d.toISOString().slice(0, 10) : d;
@@ -40,6 +41,7 @@ router.get('/week/:date', async (req, res) => {
     });
     res.json(completions.map(flattenCompletion));
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -54,6 +56,7 @@ router.get('/:date', async (req, res) => {
     });
     res.json(completions.map(flattenCompletion));
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -79,6 +82,7 @@ router.put('/:date/:taskId', async (req, res) => {
     });
     res.json({ ...completion, snapshot_date: toDateStr(completion.snapshot_date) });
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });

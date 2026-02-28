@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const prisma  = require('../lib/prisma');
+const logger  = require('../lib/logger');
 
 // POST /api/tasks — create task (section_id in body)
 router.post('/', async (req, res) => {
@@ -19,6 +20,7 @@ router.post('/', async (req, res) => {
     });
     res.status(201).json(task);
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -41,6 +43,7 @@ router.put('/:id', async (req, res) => {
     res.json(task);
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Not found' });
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -51,6 +54,7 @@ router.delete('/:id', async (req, res) => {
     await prisma.task.delete({ where: { id: req.params.id } });
     res.status(204).end();
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });

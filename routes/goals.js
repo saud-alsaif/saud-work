@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const prisma  = require('../lib/prisma');
+const logger  = require('../lib/logger');
 
 const withProgressPct = (goal) => {
   const target  = Number(goal.target_value);
@@ -21,6 +22,7 @@ router.get('/', async (req, res) => {
     });
     res.json(goals.map(withProgressPct));
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -41,6 +43,7 @@ router.post('/', async (req, res) => {
     });
     res.status(201).json(withProgressPct(goal));
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -63,6 +66,7 @@ router.put('/:id', async (req, res) => {
     res.json(withProgressPct(goal));
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Not found' });
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -73,6 +77,7 @@ router.delete('/:id', async (req, res) => {
     await prisma.goal.delete({ where: { id: req.params.id } });
     res.status(204).end();
   } catch (err) {
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 });
