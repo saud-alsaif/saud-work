@@ -1,15 +1,18 @@
 const express = require('express');
 const router  = express.Router();
-const db      = require('../db');
+const prisma  = require('../lib/prisma');
 
 // GET /api/knowledge?type=quote|book|note
 router.get('/', async (req, res) => {
   try {
     const { type } = req.query;
-    const { rows } = type
-      ? await db.query('SELECT * FROM knowledge_items WHERE type = $1 ORDER BY created_at DESC', [type])
-      : await db.query('SELECT * FROM knowledge_items ORDER BY type ASC, created_at DESC');
-    res.json(rows);
+    const items = await prisma.knowledgeItem.findMany({
+      where:   type ? { type } : undefined,
+      orderBy: type
+        ? { created_at: 'desc' }
+        : [{ type: 'asc' }, { created_at: 'desc' }],
+    });
+    res.json(items);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -17,25 +20,21 @@ router.get('/', async (req, res) => {
 
 // POST /api/knowledge
 router.post('/', async (req, res) => {
-  const {
-    type,
-    quote_text, quote_author,
-    book_title, book_author, book_status,
-    note_title, note_content,
-  } = req.body;
+  const { type, quote_text, quote_author, book_title, book_author, book_status, note_title, note_content } = req.body;
   try {
-    const { rows } = await db.query(
-      `INSERT INTO knowledge_items
-         (type, quote_text, quote_author, book_title, book_author, book_status, note_title, note_content)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [
+    const item = await prisma.knowledgeItem.create({
+      data: {
         type,
-        quote_text || null, quote_author || null,
-        book_title || null, book_author || null, book_status || null,
-        note_title || null, note_content || null,
-      ]
-    );
-    res.status(201).json(rows[0]);
+        quote_text:   quote_text   || null,
+        quote_author: quote_author || null,
+        book_title:   book_title   || null,
+        book_author:  book_author  || null,
+        book_status:  book_status  || null,
+        note_title:   note_title   || null,
+        note_content: note_content || null,
+      },
+    });
+    res.status(201).json(item);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -43,31 +42,24 @@ router.post('/', async (req, res) => {
 
 // PUT /api/knowledge/:id
 router.put('/:id', async (req, res) => {
-  const {
-    type,
-    quote_text, quote_author,
-    book_title, book_author, book_status,
-    note_title, note_content,
-  } = req.body;
+  const { type, quote_text, quote_author, book_title, book_author, book_status, note_title, note_content } = req.body;
   try {
-    const { rows } = await db.query(
-      `UPDATE knowledge_items
-       SET type         = $1,
-           quote_text   = $2, quote_author = $3,
-           book_title   = $4, book_author  = $5, book_status = $6,
-           note_title   = $7, note_content = $8
-       WHERE id = $9 RETURNING *`,
-      [
+    const item = await prisma.knowledgeItem.update({
+      where: { id: req.params.id },
+      data: {
         type,
-        quote_text || null, quote_author || null,
-        book_title || null, book_author || null, book_status || null,
-        note_title || null, note_content || null,
-        req.params.id,
-      ]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
+        quote_text:   quote_text   || null,
+        quote_author: quote_author || null,
+        book_title:   book_title   || null,
+        book_author:  book_author  || null,
+        book_status:  book_status  || null,
+        note_title:   note_title   || null,
+        note_content: note_content || null,
+      },
+    });
+    res.json(item);
   } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Not found' });
     res.status(500).json({ error: err.message });
   }
 });
@@ -75,7 +67,7 @@ router.put('/:id', async (req, res) => {
 // DELETE /api/knowledge/:id
 router.delete('/:id', async (req, res) => {
   try {
-    await db.query('DELETE FROM knowledge_items WHERE id = $1', [req.params.id]);
+    await prisma.knowledgeItem.delete({ where: { id: req.params.id } });
     res.status(204).end();
   } catch (err) {
     res.status(500).json({ error: err.message });

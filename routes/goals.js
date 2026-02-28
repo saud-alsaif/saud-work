@@ -1,15 +1,25 @@
 const express = require('express');
 const router  = express.Router();
-const db      = require('../db');
+const prisma  = require('../lib/prisma');
+
+const withProgressPct = (goal) => {
+  const target  = Number(goal.target_value);
+  const current = Number(goal.current_value);
+  const pct     = target === 0 ? 0 : Math.min((current / target) * 100, 100);
+  return { ...goal, progress_pct: Math.round(pct * 100) / 100 };
+};
 
 // GET /api/goals?type=legacy|objectives2026
 router.get('/', async (req, res) => {
   try {
     const { type } = req.query;
-    const { rows } = type
-      ? await db.query('SELECT * FROM goals WHERE goal_type = $1 ORDER BY created_at ASC', [type])
-      : await db.query('SELECT * FROM goals ORDER BY goal_type ASC, created_at ASC');
-    res.json(rows);
+    const goals = await prisma.goal.findMany({
+      where:   type ? { goal_type: type } : undefined,
+      orderBy: type
+        ? { created_at: 'asc' }
+        : [{ goal_type: 'asc' }, { created_at: 'asc' }],
+    });
+    res.json(goals.map(withProgressPct));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -19,12 +29,17 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   const { goal_type, title, description, target_value, current_value, linked_sector } = req.body;
   try {
-    const { rows } = await db.query(
-      `INSERT INTO goals (goal_type, title, description, target_value, current_value, linked_sector)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [goal_type, title, description || null, target_value, current_value ?? 0, linked_sector || null]
-    );
-    res.status(201).json(rows[0]);
+    const goal = await prisma.goal.create({
+      data: {
+        goal_type,
+        title,
+        description:   description   || null,
+        target_value,
+        current_value: current_value ?? 0,
+        linked_sector: linked_sector || null,
+      },
+    });
+    res.status(201).json(withProgressPct(goal));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -34,16 +49,20 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   const { goal_type, title, description, target_value, current_value, linked_sector } = req.body;
   try {
-    const { rows } = await db.query(
-      `UPDATE goals
-       SET goal_type = $1, title = $2, description = $3,
-           target_value = $4, current_value = $5, linked_sector = $6
-       WHERE id = $7 RETURNING *`,
-      [goal_type, title, description || null, target_value, current_value ?? 0, linked_sector || null, req.params.id]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
+    const goal = await prisma.goal.update({
+      where: { id: req.params.id },
+      data: {
+        goal_type,
+        title,
+        description:   description   || null,
+        target_value,
+        current_value: current_value ?? 0,
+        linked_sector: linked_sector || null,
+      },
+    });
+    res.json(withProgressPct(goal));
   } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Not found' });
     res.status(500).json({ error: err.message });
   }
 });
@@ -51,7 +70,7 @@ router.put('/:id', async (req, res) => {
 // DELETE /api/goals/:id
 router.delete('/:id', async (req, res) => {
   try {
-    await db.query('DELETE FROM goals WHERE id = $1', [req.params.id]);
+    await prisma.goal.delete({ where: { id: req.params.id } });
     res.status(204).end();
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -1,43 +1,58 @@
 const express = require('express');
 const router  = express.Router();
-const db      = require('../db');
+const prisma  = require('../lib/prisma');
 
-// GET /api/completions/week/:date — completions for all 7 days of the week
+const toDateStr = (d) =>
+  d instanceof Date ? d.toISOString().slice(0, 10) : d;
+
+const flattenCompletion = (c) => {
+  const { task, snapshot_date, ...rest } = c;
+  return {
+    snapshot_date: toDateStr(snapshot_date),
+    ...rest,
+    ...(task ? {
+      title:               task.title,
+      type:                task.type,
+      bonus_weight:        task.bonus_weight,
+      section_id:          task.section_id,
+      is_weekday_template: task.is_weekday_template,
+      is_weekend_template: task.is_weekend_template,
+    } : {}),
+  };
+};
+
+// GET /api/completions/week/:date
 router.get('/week/:date', async (req, res) => {
   try {
-    // Get Mon–Sun range for the week containing :date
-    const { rows } = await db.query(
-      `SELECT tc.snapshot_date, tc.task_id, tc.completed,
-              t.title, t.type, t.bonus_weight, t.section_id
-       FROM task_completions tc
-       JOIN tasks t ON t.id = tc.task_id
-       WHERE tc.snapshot_date BETWEEN
-           (DATE $1 - EXTRACT(DOW FROM DATE $1)::int * INTERVAL '1 day')
-           AND
-           (DATE $1 - EXTRACT(DOW FROM DATE $1)::int * INTERVAL '1 day' + INTERVAL '6 days')
-       ORDER BY tc.snapshot_date ASC, t.display_order ASC`,
-      [req.params.date]
-    );
-    res.json(rows);
+    const d = new Date(req.params.date + 'T00:00:00Z');
+    const dow = d.getUTCDay();
+    const start = new Date(d);
+    start.setUTCDate(d.getUTCDate() - dow);
+    const end = new Date(start);
+    end.setUTCDate(start.getUTCDate() + 6);
+
+    const completions = await prisma.taskCompletion.findMany({
+      where: {
+        snapshot_date: { gte: start, lte: end },
+      },
+      include: { task: true },
+      orderBy: [{ snapshot_date: 'asc' }, { task: { display_order: 'asc' } }],
+    });
+    res.json(completions.map(flattenCompletion));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/completions/:date — all completions for a date (with task info)
+// GET /api/completions/:date
 router.get('/:date', async (req, res) => {
   try {
-    const { rows } = await db.query(
-      `SELECT tc.task_id, tc.completed,
-              t.title, t.type, t.bonus_weight, t.section_id,
-              t.is_weekday_template, t.is_weekend_template
-       FROM task_completions tc
-       JOIN tasks t ON t.id = tc.task_id
-       WHERE tc.snapshot_date = $1
-       ORDER BY t.display_order ASC`,
-      [req.params.date]
-    );
-    res.json(rows);
+    const completions = await prisma.taskCompletion.findMany({
+      where:   { snapshot_date: new Date(req.params.date) },
+      include: { task: true },
+      orderBy: { task: { display_order: 'asc' } },
+    });
+    res.json(completions.map(flattenCompletion));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -47,22 +62,22 @@ router.get('/:date', async (req, res) => {
 router.put('/:date/:taskId', async (req, res) => {
   const { completed } = req.body;
   const { date, taskId } = req.params;
+  const snapshotDate = new Date(date);
+
   try {
     // Ensure daily_snapshot row exists first
-    await db.query(
-      `INSERT INTO daily_snapshots (snapshot_date) VALUES ($1)
-       ON CONFLICT (snapshot_date) DO NOTHING`,
-      [date]
-    );
+    await prisma.dailySnapshot.upsert({
+      where:  { snapshot_date: snapshotDate },
+      update: {},
+      create: { snapshot_date: snapshotDate },
+    });
 
-    const { rows } = await db.query(
-      `INSERT INTO task_completions (snapshot_date, task_id, completed)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (snapshot_date, task_id) DO UPDATE SET completed = EXCLUDED.completed
-       RETURNING *`,
-      [date, taskId, completed ?? false]
-    );
-    res.json(rows[0]);
+    const completion = await prisma.taskCompletion.upsert({
+      where:  { snapshot_date_task_id: { snapshot_date: snapshotDate, task_id: taskId } },
+      update: { completed: completed ?? false },
+      create: { snapshot_date: snapshotDate, task_id: taskId, completed: completed ?? false },
+    });
+    res.json({ ...completion, snapshot_date: toDateStr(completion.snapshot_date) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

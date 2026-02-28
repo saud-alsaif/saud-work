@@ -329,6 +329,34 @@
             }
         }
 
+        /* API Loader — top progress bar */
+        #api-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            z-index: 99999;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        #api-loader.active {
+            opacity: 1;
+        }
+        #api-loader::after {
+            content: '';
+            display: block;
+            height: 100%;
+            background: linear-gradient(90deg, #6366f1, #a78bfa, #6366f1);
+            background-size: 200% 100%;
+            animation: loader-shimmer 1.2s ease infinite;
+        }
+        @keyframes loader-shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
         .login-icon {
             font-size: 64px;
             margin-bottom: 20px;
@@ -3069,6 +3097,7 @@
     </style>
 </head>
 <body>
+    <div id="api-loader"></div>
     <!-- Login Screen -->
     <div class="login-screen" id="loginScreen">
         <div class="login-box">
@@ -4287,25 +4316,42 @@
         // ============================================
         // API Client
         // ============================================
+        let _apiPending = 0;
+        const _loader = document.getElementById('api-loader');
+        const _loaderShow = () => { if (++_apiPending === 1) _loader.classList.add('active'); };
+        const _loaderHide = () => { if (--_apiPending <= 0) { _apiPending = 0; _loader.classList.remove('active'); } };
+
         const API = {
             async get(path) {
-                const r = await fetch('/api' + path);
-                if (!r.ok) throw new Error(await r.text());
-                return r.json();
+                _loaderShow();
+                try {
+                    const r = await fetch('/api' + path);
+                    if (!r.ok) throw new Error(await r.text());
+                    return r.json();
+                } finally { _loaderHide(); }
             },
             async post(path, body) {
-                const r = await fetch('/api' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-                if (!r.ok) throw new Error(await r.text());
-                return r.json();
+                _loaderShow();
+                try {
+                    const r = await fetch('/api' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                    if (!r.ok) throw new Error(await r.text());
+                    return r.json();
+                } finally { _loaderHide(); }
             },
             async put(path, body) {
-                const r = await fetch('/api' + path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-                if (!r.ok) throw new Error(await r.text());
-                return r.json();
+                _loaderShow();
+                try {
+                    const r = await fetch('/api' + path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                    if (!r.ok) throw new Error(await r.text());
+                    return r.json();
+                } finally { _loaderHide(); }
             },
             async del(path) {
-                const r = await fetch('/api' + path, { method: 'DELETE' });
-                if (!r.ok) throw new Error(await r.text());
+                _loaderShow();
+                try {
+                    const r = await fetch('/api' + path, { method: 'DELETE' });
+                    if (!r.ok) throw new Error(await r.text());
+                } finally { _loaderHide(); }
             }
         };
 

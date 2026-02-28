@@ -1,14 +1,12 @@
 const express = require('express');
 const router  = express.Router();
-const db      = require('../db');
+const prisma  = require('../lib/prisma');
 
 // GET /api/projects
 router.get('/', async (req, res) => {
   try {
-    const { rows } = await db.query(
-      'SELECT * FROM projects ORDER BY created_at ASC'
-    );
-    res.json(rows);
+    const projects = await prisma.project.findMany({ orderBy: { created_at: 'asc' } });
+    res.json(projects);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -18,12 +16,16 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   const { name, description, category, status, progress_pct } = req.body;
   try {
-    const { rows } = await db.query(
-      `INSERT INTO projects (name, description, category, status, progress_pct)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [name, description || null, category || null, status || 'planning', progress_pct ?? 0]
-    );
-    res.status(201).json(rows[0]);
+    const project = await prisma.project.create({
+      data: {
+        name,
+        description:  description  || null,
+        category:     category     || null,
+        status:       status       || 'planning',
+        progress_pct: progress_pct ?? 0,
+      },
+    });
+    res.status(201).json(project);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -33,15 +35,19 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   const { name, description, category, status, progress_pct } = req.body;
   try {
-    const { rows } = await db.query(
-      `UPDATE projects
-       SET name = $1, description = $2, category = $3, status = $4, progress_pct = $5
-       WHERE id = $6 RETURNING *`,
-      [name, description || null, category || null, status, progress_pct ?? 0, req.params.id]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
+    const project = await prisma.project.update({
+      where: { id: req.params.id },
+      data: {
+        name,
+        description:  description  || null,
+        category:     category     || null,
+        status,
+        progress_pct: progress_pct ?? 0,
+      },
+    });
+    res.json(project);
   } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Not found' });
     res.status(500).json({ error: err.message });
   }
 });
@@ -49,7 +55,7 @@ router.put('/:id', async (req, res) => {
 // DELETE /api/projects/:id
 router.delete('/:id', async (req, res) => {
   try {
-    await db.query('DELETE FROM projects WHERE id = $1', [req.params.id]);
+    await prisma.project.delete({ where: { id: req.params.id } });
     res.status(204).end();
   } catch (err) {
     res.status(500).json({ error: err.message });
