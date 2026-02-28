@@ -6,36 +6,7 @@
     <title>لوحة التحكم - إدارة الأعمال</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
     
-    <!-- Firebase SDK v10 (Most Stable) -->
-    <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js';
-        import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js';
-        import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js';
-        
-        const firebaseConfig = {
-            apiKey: "AIzaSyATV4f1eOJIFsWcf89wj9vOSXeCZBIefmw",
-            authDomain: "saud-9b326.firebaseapp.com",
-            projectId: "saud-9b326",
-            storageBucket: "saud-9b326.firebasestorage.app",
-            messagingSenderId: "132490659875",
-            appId: "1:132490659875:web:4e7ffb4a68e182711c0996"
-        };
-        
-        const app = initializeApp(firebaseConfig);
-        window.firebaseApp = app;
-        window.firebaseAuth = getAuth(app);
-        window.firebaseDb = getFirestore(app);
-        window.firebaseSignInAnonymously = signInAnonymously;
-        window.firebaseOnAuthStateChanged = onAuthStateChanged;
-        window.firebaseSignOut = signOut;
-        window.firebaseDoc = doc;
-        window.firebaseSetDoc = setDoc;
-        window.firebaseGetDoc = getDoc;
-        window.firebaseServerTimestamp = serverTimestamp;
-        window.firebaseEnabled = true;
-        
-        console.log('🔥 Firebase v10 Modular SDK loaded!');
-    </script>
+    <!-- PostgreSQL backend via Node/Express API -->
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -4312,7 +4283,57 @@
         let currentViewDate = new Date(); // The date being viewed
         let calendarViewDate = new Date(); // For calendar picker navigation
         let dailySnapshots = {}; // Cache of daily snapshots
-        
+
+        // ============================================
+        // API Client
+        // ============================================
+        const API = {
+            async get(path) {
+                const r = await fetch('/api' + path);
+                if (!r.ok) throw new Error(await r.text());
+                return r.json();
+            },
+            async post(path, body) {
+                const r = await fetch('/api' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                if (!r.ok) throw new Error(await r.text());
+                return r.json();
+            },
+            async put(path, body) {
+                const r = await fetch('/api' + path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                if (!r.ok) throw new Error(await r.text());
+                return r.json();
+            },
+            async del(path) {
+                const r = await fetch('/api' + path, { method: 'DELETE' });
+                if (!r.ok) throw new Error(await r.text());
+            }
+        };
+
+        function buildSnapshotPayload() {
+            const w = dashboardData.wheelOfLife || {};
+            const h = dashboardData.healthDetails || {};
+            const m = dashboardData.metrics || {};
+            return {
+                productivity_pct:         m.health   || 0,
+                projects_pct:             m.goals    || 0,
+                satisfaction_pts:         m.satisfaction || 0,
+                week_tracker_pct:         m.week     || 0,
+                wheel_career:             w.career   || 0,
+                wheel_finance:            w.finance  || 0,
+                wheel_health:             w.health   || 0,
+                wheel_spirituality:       w.spirituality || 0,
+                wheel_social:             w.social   || 0,
+                wheel_cultural:           w.cultural || 0,
+                wheel_recreation:         w.recreation || 0,
+                health_water_liters:      h.water    || 0,
+                health_workout_minutes:   h.workout  || 0,
+                health_sleep_hours:       h.sleep    || 0,
+                health_nutrition_score:   h.nutrition || 0,
+                health_overall_score:     m.health   || 0,
+                daily_satisfaction_score: m.satisfaction || 0,
+            };
+        }
+
         // Format date as YYYY-MM-DD
         function formatDateKey(date) {
             const year = date.getFullYear();
@@ -4466,83 +4487,77 @@
             loadDataForDate(date);
         }
         
-        // Save daily snapshot
+        // Save daily snapshot to PostgreSQL
         async function saveDailySnapshot() {
-            const dateKey = formatDateKey(new Date());
-            const snapshot = {
-                date: dateKey,
-                data: JSON.parse(JSON.stringify(dashboardData)),
-                timestamp: new Date().toISOString()
-            };
-            
-            // Save to localStorage
-            const snapshotsKey = 'dailySnapshots';
-            let snapshots = JSON.parse(localStorage.getItem(snapshotsKey) || '{}');
-            snapshots[dateKey] = snapshot;
-            localStorage.setItem(snapshotsKey, JSON.stringify(snapshots));
-            dailySnapshots[dateKey] = snapshot;
-            
-            // Save to Firestore if available
-            if (window.currentUser && window.firebaseDb) {
-                try {
-                    const snapshotDoc = window.firebaseDoc(window.firebaseDb, 'snapshots', window.currentUser.uid, 'daily', dateKey);
-                    await window.firebaseSetDoc(snapshotDoc, snapshot);
-                    console.log('✅ Daily snapshot saved to Firestore');
-                } catch (error) {
-                    console.error('❌ Error saving snapshot to Firestore:', error);
-                }
+            const dateKey = formatDateKey(currentViewDate);
+            try {
+                await API.put('/snapshots/' + dateKey, buildSnapshotPayload());
+                dailySnapshots[dateKey] = true;
+                console.log('✅ Daily snapshot saved to DB');
+            } catch (err) {
+                console.error('❌ Error saving snapshot:', err);
             }
         }
         
-        // Load data for specific date
+        // Load data for specific date from PostgreSQL
         async function loadDataForDate(date) {
             const dateKey = formatDateKey(date);
-            
-            // Check cache first
-            if (dailySnapshots[dateKey]) {
-                dashboardData = JSON.parse(JSON.stringify(dailySnapshots[dateKey].data));
-                updateUI();
-                return;
-            }
-            
-            // Try Firestore
-            if (window.currentUser && window.firebaseDb) {
-                try {
-                    const snapshotDoc = window.firebaseDoc(window.firebaseDb, 'snapshots', window.currentUser.uid, 'daily', dateKey);
-                    const snap = await window.firebaseGetDoc(snapshotDoc);
-                    if (snap.exists()) {
-                        const snapshot = snap.data();
-                        dailySnapshots[dateKey] = snapshot;
-                        dashboardData = JSON.parse(JSON.stringify(snapshot.data));
-                        updateUI();
-                        return;
-                    }
-                } catch (error) {
-                    console.error('❌ Error loading snapshot from Firestore:', error);
+            try {
+                const [snap, completions] = await Promise.all([
+                    API.get('/snapshots/' + dateKey),
+                    API.get('/completions/' + dateKey)
+                ]);
+
+                if (snap && snap.snapshot_date) {
+                    dashboardData.metrics.health        = snap.productivity_pct;
+                    dashboardData.metrics.goals         = snap.projects_pct;
+                    dashboardData.metrics.satisfaction  = snap.satisfaction_pts;
+                    dashboardData.metrics.week          = snap.week_tracker_pct;
+                    dashboardData.wheelOfLife = {
+                        career:       snap.wheel_career,
+                        finance:      snap.wheel_finance,
+                        health:       snap.wheel_health,
+                        spirituality: snap.wheel_spirituality,
+                        social:       snap.wheel_social,
+                        cultural:     snap.wheel_cultural,
+                        recreation:   snap.wheel_recreation,
+                    };
+                    dashboardData.healthDetails = {
+                        water:     parseFloat(snap.health_water_liters),
+                        workout:   snap.health_workout_minutes,
+                        sleep:     parseFloat(snap.health_sleep_hours),
+                        nutrition: snap.health_nutrition_score,
+                    };
+                } else {
+                    dashboardData.metrics = { health: 0, goals: 0, satisfaction: 0, week: 0 };
+                    dashboardData.wheelOfLife = { career: 0, finance: 0, health: 0, spirituality: 0, social: 0, cultural: 0, recreation: 0 };
+                    dashboardData.healthDetails = { water: 0, workout: 0, sleep: 0, nutrition: 0 };
                 }
-            }
-            
-            // Fallback to localStorage
-            const snapshotsKey = 'dailySnapshots';
-            const snapshots = JSON.parse(localStorage.getItem(snapshotsKey) || '{}');
-            if (snapshots[dateKey]) {
-                dailySnapshots[dateKey] = snapshots[dateKey];
-                dashboardData = JSON.parse(JSON.stringify(snapshots[dateKey].data));
+
+                const completionMap = {};
+                completions.forEach(c => { completionMap[c.task_id] = c.completed; });
+                dashboardData.satisfaction.sections.forEach(s => {
+                    s.tasks.forEach(t => {
+                        t.completed = t.api_id ? (completionMap[t.api_id] ?? false) : false;
+                    });
+                });
+
                 updateUI();
-            } else {
-                alert('لا توجد بيانات محفوظة لهذا اليوم');
-                goToToday();
+            } catch (err) {
+                console.error('❌ Error loading date:', err);
+                updateUI();
             }
         }
-        
-        // Load all snapshots metadata (for calendar dots)
+
+        // Load all snapshot dates (for calendar dots)
         async function loadSnapshotsMetadata() {
-            // Load from localStorage
-            const snapshotsKey = 'dailySnapshots';
-            const snapshots = JSON.parse(localStorage.getItem(snapshotsKey) || '{}');
-            dailySnapshots = snapshots;
-            
-            // TODO: Load from Firestore if needed
+            try {
+                const dates = await API.get('/snapshots');
+                dailySnapshots = {};
+                dates.forEach(d => { dailySnapshots[d] = true; });
+            } catch (err) {
+                console.error('❌ Error loading snapshots metadata:', err);
+            }
         }
 
         // ============================================
@@ -4561,30 +4576,13 @@
             const logoutBtn = document.getElementById('logoutBtn');
             
             if (input.value === MASTER_PASSWORD) {
-                // الرمز صحيح - أظهر Dashboard أولاً
+                // الرمز صحيح - أظهر Dashboard
                 localStorage.setItem('authenticated', 'true');
                 loginScreen.classList.add('hidden');
                 mainContent.style.display = 'block';
                 logoutBtn.style.display = 'block';
                 error.classList.remove('show');
-                
-                // Try Firebase auth if available
-                if (firebaseEnabled && window.firebaseAuth) {
-                    try {
-                        const result = await window.firebaseSignInAnonymously(window.firebaseAuth);
-                        window.currentUser = result.user;
-                        console.log('✅ Logged in with Firebase:', window.currentUser.uid);
-                        // بعد ما سجلنا دخول، حمّل البيانات من Firestore
-                        await loadData();
-                    } catch (firebaseError) {
-                        console.warn('⚠️ Firebase auth failed:', firebaseError);
-                        // Fallback to localStorage
-                        await loadData();
-                    }
-                } else {
-                    console.log('ℹ️ Using localStorage mode');
-                    await loadData();
-                }
+                await loadData();
             } else {
                 // الرمز خاطئ
                 error.textContent = 'الرمز غير صحيح';
@@ -4599,12 +4597,8 @@
         
         
         // تسجيل الخروج
-        async function logout() {
+        function logout() {
             if (confirm('هل أنت متأكد من تسجيل الخروج؟')) {
-                if (window.firebaseAuth) {
-                    await window.firebaseSignOut(window.firebaseAuth);
-                }
-                window.currentUser = null;
                 localStorage.removeItem('authenticated');
                 location.reload();
             }
@@ -4917,27 +4911,110 @@
             ]
         };
 
-        // Load data from localStorage
+        // Load data from PostgreSQL API
         async function loadData() {
-            // Try to load from Firestore first
-            if (window.currentUser && window.firebaseDb) {
-                try {
-                    const userDoc = window.firebaseDoc(window.firebaseDb, 'users', window.currentUser.uid);
-                    const docSnap = await window.firebaseGetDoc(userDoc);
-                    if (docSnap.exists()) {
-                        const firestoreData = docSnap.data().data;
-                        dashboardData = {
-                            ...dashboardData,
-                            ...firestoreData
-                        };
-                        console.log('✅ Data loaded from Firestore');
-                        updateUI();
-                        return;
-                    }
-                } catch (error) {
-                    console.error('❌ Error loading from Firestore:', error);
+            try {
+                const [sectionsRaw, projects, goals, knowledge, focus, todaySnap] = await Promise.all([
+                    API.get('/sections'),
+                    API.get('/projects'),
+                    API.get('/goals'),
+                    API.get('/knowledge'),
+                    API.get('/strategic-focus'),
+                    API.get('/snapshots/' + formatDateKey(new Date()))
+                ]);
+
+                // Sections + Tasks (store api_id for later CRUD)
+                dashboardData.satisfaction.sections = sectionsRaw.map((s, si) => ({
+                    id: si + 1,
+                    api_id: s.id,
+                    name: s.name,
+                    tasks: (s.tasks || []).map((t, ti) => ({
+                        id: ti + 1,
+                        api_id: t.id,
+                        title: t.title,
+                        type: t.type,
+                        bonusWeight: t.bonus_weight || 10,
+                        completed: false,
+                    }))
+                }));
+
+                // Task completions for today
+                const completions = await API.get('/completions/' + formatDateKey(new Date()));
+                const completionMap = {};
+                completions.forEach(c => { completionMap[c.task_id] = c.completed; });
+                dashboardData.satisfaction.sections.forEach(s => {
+                    s.tasks.forEach(t => {
+                        if (t.api_id) t.completed = completionMap[t.api_id] ?? false;
+                    });
+                });
+
+                // Projects
+                dashboardData.projects = projects.map((p, i) => ({
+                    id: i + 1, api_id: p.id,
+                    name: p.name, desc: p.description,
+                    category: p.category, status: p.status,
+                    progress: p.progress_pct
+                }));
+
+                // Goals
+                dashboardData.goals.legacy = goals.filter(g => g.goal_type === 'legacy').map((g, i) => ({
+                    id: i + 1, api_id: g.id, title: g.title, description: g.description,
+                    targetValue: parseFloat(g.target_value), currentValue: parseFloat(g.current_value),
+                    linkedSector: g.linked_sector, progress: parseFloat(g.progress_pct) || 0
+                }));
+                dashboardData.goals.objectives2026 = goals.filter(g => g.goal_type === 'objectives2026').map((g, i) => ({
+                    id: i + 1, api_id: g.id, title: g.title, description: g.description,
+                    targetValue: parseFloat(g.target_value), currentValue: parseFloat(g.current_value),
+                    linkedSector: g.linked_sector, progress: parseFloat(g.progress_pct) || 0
+                }));
+
+                // Knowledge
+                dashboardData.quotes = knowledge.filter(k => k.type === 'quote').map((k, i) => ({
+                    id: i + 1, api_id: k.id, text: k.quote_text, author: k.quote_author
+                }));
+                dashboardData.books = knowledge.filter(k => k.type === 'book').map((k, i) => ({
+                    id: i + 1, api_id: k.id, title: k.book_title, author: k.book_author, status: k.book_status
+                }));
+                dashboardData.notes = knowledge.filter(k => k.type === 'note').map((k, i) => ({
+                    id: i + 1, api_id: k.id, title: k.note_title, content: k.note_content
+                }));
+
+                // Strategic Focus
+                dashboardData.strategicFocus = focus.map((f, i) => ({
+                    id: i, api_id: f.id,
+                    name: f.name, icon: f.icon, color: f.color, value: f.value_pct
+                }));
+
+                // Daily Snapshot (today)
+                if (todaySnap && todaySnap.snapshot_date) {
+                    dashboardData.metrics.health        = todaySnap.productivity_pct;
+                    dashboardData.metrics.goals         = todaySnap.projects_pct;
+                    dashboardData.metrics.satisfaction  = todaySnap.satisfaction_pts;
+                    dashboardData.metrics.week          = todaySnap.week_tracker_pct;
+                    dashboardData.wheelOfLife = {
+                        career: todaySnap.wheel_career, finance: todaySnap.wheel_finance,
+                        health: todaySnap.wheel_health, spirituality: todaySnap.wheel_spirituality,
+                        social: todaySnap.wheel_social, cultural: todaySnap.wheel_cultural,
+                        recreation: todaySnap.wheel_recreation,
+                    };
+                    dashboardData.healthDetails = {
+                        water: parseFloat(todaySnap.health_water_liters),
+                        workout: todaySnap.health_workout_minutes,
+                        sleep: parseFloat(todaySnap.health_sleep_hours),
+                        nutrition: todaySnap.health_nutrition_score,
+                    };
                 }
+
+                console.log('✅ Data loaded from PostgreSQL API');
+                updateUI();
+                updateDateDisplay();
+                await loadSnapshotsMetadata();
+                return;
+            } catch (err) {
+                console.error('❌ Error loading from API, falling back to localStorage:', err);
             }
+
+            // Fallback to localStorage if API is unavailable
             
             // Fallback to localStorage
             const saved = localStorage.getItem('dashboardData');
@@ -5334,29 +5411,10 @@
             await loadSnapshotsMetadata();
         }
 
-        // Save data to localStorage
+        // Save data — daily metrics to PostgreSQL, keep localStorage as cache
         async function saveData() {
-            // Save to localStorage (backup)
             localStorage.setItem('dashboardData', JSON.stringify(dashboardData));
-            
-            // Save daily snapshot if viewing today
-            if (isViewingToday()) {
-                await saveDailySnapshot();
-            }
-            
-            // Save to Firestore
-            if (window.currentUser && window.firebaseDb) {
-                try {
-                    const userDoc = window.firebaseDoc(window.firebaseDb, 'users', window.currentUser.uid);
-                    await window.firebaseSetDoc(userDoc, {
-                        data: dashboardData,
-                        lastUpdated: window.firebaseServerTimestamp()
-                    });
-                    console.log('✅ Data saved to Firestore');
-                } catch (error) {
-                    console.error('❌ Error saving to Firestore:', error);
-                }
-            }
+            await saveDailySnapshot();
         }
 
         // ============================================
@@ -5937,20 +5995,27 @@
             document.getElementById('knowledgeModal').classList.add('active');
         }
 
-        function deleteKnowledgeItem(type, id) {
+        async function deleteKnowledgeItem(type, id) {
             if (!confirm('هل أنت متأكد من الحذف؟')) return;
-            
+
+            let itemToDelete;
+            if (type === 'quotes') itemToDelete = dashboardData.quotes.find(q => q.id === id);
+            else if (type === 'books') itemToDelete = dashboardData.books.find(b => b.id === id);
+            else if (type === 'notes') itemToDelete = dashboardData.notes.find(n => n.id === id);
+            if (itemToDelete && itemToDelete.api_id) {
+                try { await API.del('/knowledge/' + itemToDelete.api_id); } catch (err) { console.error('Knowledge delete failed:', err); }
+            }
+
             if (type === 'quotes') {
                 dashboardData.quotes = dashboardData.quotes.filter(q => q.id !== id);
             } else if (type === 'books') {
                 dashboardData.books = dashboardData.books.filter(b => b.id !== id);
-                // Update books goal current count
                 const completedBooks = dashboardData.books.filter(b => b.status === 'completed').length;
                 dashboardData.booksGoal.current = completedBooks;
             } else if (type === 'notes') {
                 dashboardData.notes = dashboardData.notes.filter(n => n.id !== id);
             }
-            
+
             saveData();
             renderKnowledgeContent();
         }
@@ -5958,53 +6023,55 @@
         function initializeKnowledgeListeners() {
             const knowledgeFormEl = document.getElementById('knowledgeForm');
             if (knowledgeFormEl && !knowledgeFormEl.dataset.initialized) {
-                knowledgeFormEl.addEventListener('submit', function(e) {
+                knowledgeFormEl.addEventListener('submit', async function(e) {
                     e.preventDefault();
-                    
+
                     const type = document.getElementById('knowledgeType').value;
                     const id = document.getElementById('knowledgeId').value;
-                    
+
                     let itemData;
                     let dataArray;
-                    
+                    let apiPayload = { type: type.replace(/s$/, '') }; // 'quotes'→'quote' etc.
+
                     if (type === 'quotes') {
-                        itemData = {
-                            text: document.getElementById('quoteText').value,
-                            author: document.getElementById('quoteAuthor').value
-                        };
+                        itemData = { text: document.getElementById('quoteText').value, author: document.getElementById('quoteAuthor').value };
+                        apiPayload.quote_text = itemData.text;
+                        apiPayload.quote_author = itemData.author;
                         dataArray = dashboardData.quotes;
                     } else if (type === 'books') {
-                        itemData = {
-                            title: document.getElementById('bookTitle').value,
-                            author: document.getElementById('bookAuthor').value,
-                            status: document.getElementById('bookStatus').value
-                        };
+                        itemData = { title: document.getElementById('bookTitle').value, author: document.getElementById('bookAuthor').value, status: document.getElementById('bookStatus').value };
+                        apiPayload.book_title = itemData.title;
+                        apiPayload.book_author = itemData.author;
+                        apiPayload.book_status = itemData.status;
                         dataArray = dashboardData.books;
                     } else if (type === 'notes') {
-                        itemData = {
-                            title: document.getElementById('noteTitle').value,
-                            content: document.getElementById('noteContent').value,
-                            date: new Date().toISOString().split('T')[0]
-                        };
+                        itemData = { title: document.getElementById('noteTitle').value, content: document.getElementById('noteContent').value, date: new Date().toISOString().split('T')[0] };
+                        apiPayload.note_title = itemData.title;
+                        apiPayload.note_content = itemData.content;
                         dataArray = dashboardData.notes;
                     }
-                    
+
                     if (id) {
-                        // Edit
                         const item = dataArray.find(i => i.id === parseInt(id));
                         Object.assign(item, itemData);
+                        try {
+                            if (item.api_id) await API.put('/knowledge/' + item.api_id, apiPayload);
+                        } catch (err) { console.error('Knowledge update failed:', err); }
                     } else {
-                        // Add
                         const newId = dataArray.length > 0 ? Math.max(...dataArray.map(i => i.id)) + 1 : 1;
-                        dataArray.push({ id: newId, ...itemData });
+                        const newItem = { id: newId, ...itemData };
+                        dataArray.push(newItem);
+                        try {
+                            const saved = await API.post('/knowledge', apiPayload);
+                            newItem.api_id = saved.id;
+                        } catch (err) { console.error('Knowledge create failed:', err); }
                     }
-                    
-                    // Update books goal if book was added/completed
+
                     if (type === 'books') {
                         const completedBooks = dashboardData.books.filter(b => b.status === 'completed').length;
                         dashboardData.booksGoal.current = completedBooks;
                     }
-                    
+
                     saveData();
                     renderKnowledgeContent();
                     closeKnowledgeModal();
@@ -6330,9 +6397,14 @@
             document.getElementById('focusItemModal').classList.add('active');
         }
 
-        function deleteFocusItem(index) {
+        async function deleteFocusItem(index) {
             if (!confirm('هل أنت متأكد من حذف هذا المجال؟')) return;
-            
+
+            const focusToDelete = dashboardData.strategicFocus[index];
+            if (focusToDelete && focusToDelete.api_id) {
+                try { await API.del('/strategic-focus/' + focusToDelete.api_id); } catch (err) { console.error('Focus delete failed:', err); }
+            }
+
             dashboardData.strategicFocus.splice(index, 1);
             saveData();
             renderStrategicFocusItems();
@@ -6343,9 +6415,9 @@
         function initializeStrategicFocusListeners() {
             const focusItemFormEl = document.getElementById('focusItemForm');
             if (focusItemFormEl && !focusItemFormEl.dataset.initialized) {
-                focusItemFormEl.addEventListener('submit', function(e) {
+                focusItemFormEl.addEventListener('submit', async function(e) {
                     e.preventDefault();
-                    
+
                     const index = document.getElementById('focusItemId').value;
                     const itemData = {
                         name: document.getElementById('focusItemName').value,
@@ -6353,18 +6425,28 @@
                         color: document.getElementById('focusItemColor').value,
                         value: parseInt(document.getElementById('focusItemValue').value)
                     };
-                    
+
                     if (index !== '') {
-                        // Edit existing item
-                        dashboardData.strategicFocus[parseInt(index)] = itemData;
+                        const existing = dashboardData.strategicFocus[parseInt(index)];
+                        dashboardData.strategicFocus[parseInt(index)] = { ...existing, ...itemData };
+                        try {
+                            if (existing && existing.api_id) await API.put('/strategic-focus/' + existing.api_id, {
+                                name: itemData.name, icon: itemData.icon, color: itemData.color, value_pct: itemData.value
+                            });
+                        } catch (err) { console.error('Focus update failed:', err); }
                     } else {
-                        // Add new item
-                        if (!dashboardData.strategicFocus) {
-                            dashboardData.strategicFocus = [];
-                        }
-                        dashboardData.strategicFocus.push(itemData);
+                        if (!dashboardData.strategicFocus) dashboardData.strategicFocus = [];
+                        const newItem = { ...itemData };
+                        dashboardData.strategicFocus.push(newItem);
+                        try {
+                            const saved = await API.post('/strategic-focus', {
+                                name: itemData.name, icon: itemData.icon, color: itemData.color, value_pct: itemData.value,
+                                display_order: dashboardData.strategicFocus.length - 1
+                            });
+                            newItem.api_id = saved.id;
+                        } catch (err) { console.error('Focus create failed:', err); }
                     }
-                    
+
                     saveData();
                     renderStrategicFocusItems();
                     updateStrategicFocus();
@@ -6618,7 +6700,7 @@
             document.getElementById('goalEditModal').classList.add('active');
         }
 
-        function submitGoalForm() {
+        async function submitGoalForm() {
             console.log('submitGoalForm called!');
             
             // Validate form
@@ -6655,20 +6737,33 @@
                 if (goal) {
                     Object.assign(goal, goalData);
                     console.log('Updated goal:', goal);
+                    try {
+                        if (goal.api_id) await API.put('/goals/' + goal.api_id, {
+                            goal_type: type, title, description,
+                            target_value: parseFloat(targetValue), current_value: parseFloat(currentValue),
+                            linked_sector: linkedSector
+                        });
+                    } catch (err) { console.error('Goal update failed:', err); }
                 }
             } else {
                 // Add new goal
-                const newId = dashboardData.goals[type].length > 0 
-                    ? Math.max(...dashboardData.goals[type].map(g => g.id)) + 1 
+                const newId = dashboardData.goals[type].length > 0
+                    ? Math.max(...dashboardData.goals[type].map(g => g.id)) + 1
                     : 1;
                 const newGoal = { id: newId, ...goalData };
                 dashboardData.goals[type].push(newGoal);
                 console.log('Added new goal:', newGoal);
-                console.log('Current goals array:', dashboardData.goals[type]);
+                try {
+                    const saved = await API.post('/goals', {
+                        goal_type: type, title, description,
+                        target_value: parseFloat(targetValue), current_value: parseFloat(currentValue),
+                        linked_sector: linkedSector
+                    });
+                    newGoal.api_id = saved.id;
+                } catch (err) { console.error('Goal create failed:', err); }
             }
-            
-            saveData();
-            console.log('Data saved to localStorage');
+
+            console.log('Goal saved to DB');
             
             renderGoals();
             console.log('Goals re-rendered');
@@ -6700,13 +6795,19 @@
             document.getElementById('goalEditModal').classList.add('active');
         }
 
-        function deleteGoal(type, id) {
+        async function deleteGoal(type, id) {
             // Convert to number
             const numId = typeof id === 'number' ? id : parseInt(id);
-            
+
+            // Delete from API first
+            const goalToDelete = dashboardData.goals[type].find(g => g.id === numId);
+            if (goalToDelete && goalToDelete.api_id) {
+                try { await API.del('/goals/' + goalToDelete.api_id); } catch (err) { console.error('Goal delete failed:', err); }
+            }
+
             // Delete from data
             dashboardData.goals[type] = dashboardData.goals[type].filter(g => g.id !== numId);
-            
+
             // Save to localStorage
             localStorage.setItem('dashboardData', JSON.stringify(dashboardData));
             
@@ -6914,7 +7015,14 @@
             const section = dashboardData.satisfaction.sections.find(s => s.id === sectionId);
             const task = section.tasks.find(t => t.id === taskId);
             task.completed = !task.completed;
-            
+
+            // Persist completion to DB (fire-and-forget)
+            if (task.api_id) {
+                const dateKey = formatDateKey(currentViewDate);
+                API.put('/completions/' + dateKey + '/' + task.api_id, { completed: task.completed })
+                    .catch(err => console.error('Completion update failed:', err));
+            }
+
             saveData();
             renderSatisfactionView();
         }
@@ -6941,9 +7049,14 @@
             document.getElementById('sectionEditModal').classList.add('active');
         }
 
-        function deleteSection(id) {
+        async function deleteSection(id) {
             if (!confirm('هل أنت متأكد من حذف هذا القسم وكل مهامه؟')) return;
-            
+
+            const sectionToDelete = dashboardData.satisfaction.sections.find(s => s.id === id);
+            if (sectionToDelete && sectionToDelete.api_id) {
+                try { await API.del('/sections/' + sectionToDelete.api_id); } catch (err) { console.error('Section delete failed:', err); }
+            }
+
             dashboardData.satisfaction.sections = dashboardData.satisfaction.sections.filter(s => s.id !== id);
             saveData();
             renderSatisfactionView();
@@ -6985,12 +7098,16 @@
             document.getElementById('taskEditModal').classList.add('active');
         }
 
-        function deleteTask(sectionId, taskId) {
+        async function deleteTask(sectionId, taskId) {
             if (!confirm('هل أنت متأكد من حذف هذه المهمة؟')) return;
-            
+
             const section = dashboardData.satisfaction.sections.find(s => s.id === sectionId);
+            const taskToDelete = section.tasks.find(t => t.id === taskId);
+            if (taskToDelete && taskToDelete.api_id) {
+                try { await API.del('/tasks/' + taskToDelete.api_id); } catch (err) { console.error('Task delete failed:', err); }
+            }
+
             section.tasks = section.tasks.filter(t => t.id !== taskId);
-            
             saveData();
             renderSatisfactionView();
         }
@@ -7348,7 +7465,7 @@
             closeWheelModal();
         });
 
-        document.getElementById('projectForm').addEventListener('submit', function(e) {
+        document.getElementById('projectForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const newProject = {
                 name: document.getElementById('projectName').value,
@@ -7358,7 +7475,14 @@
                 progress: parseInt(document.getElementById('projectProgress').value)
             };
             dashboardData.projects.push(newProject);
-            saveData();
+            try {
+                const saved = await API.post('/projects', {
+                    name: newProject.name, description: newProject.desc,
+                    category: newProject.category, status: newProject.status,
+                    progress_pct: newProject.progress
+                });
+                newProject.api_id = saved.id;
+            } catch (err) { console.error('Project save failed:', err); }
             updateProjects();
             closeProjectModal();
         });
@@ -7430,26 +7554,30 @@
             // Section edit form
             const sectionFormEl = document.getElementById('sectionEditForm');
             if (sectionFormEl && !sectionFormEl.dataset.initialized) {
-                sectionFormEl.addEventListener('submit', function(e) {
+                sectionFormEl.addEventListener('submit', async function(e) {
                     e.preventDefault();
-                    
+
                     const id = document.getElementById('sectionEditId').value;
                     const name = document.getElementById('sectionName').value;
-                    
+
                     if (id) {
                         const section = dashboardData.satisfaction.sections.find(s => s.id === parseInt(id));
                         section.name = name;
+                        try {
+                            if (section.api_id) await API.put('/sections/' + section.api_id, { name, display_order: section.display_order || 0 });
+                        } catch (err) { console.error('Section update failed:', err); }
                     } else {
                         const newId = dashboardData.satisfaction.sections.length > 0
                             ? Math.max(...dashboardData.satisfaction.sections.map(s => s.id)) + 1
                             : 1;
-                        dashboardData.satisfaction.sections.push({
-                            id: newId,
-                            name: name,
-                            tasks: []
-                        });
+                        const newSection = { id: newId, name, tasks: [] };
+                        dashboardData.satisfaction.sections.push(newSection);
+                        try {
+                            const saved = await API.post('/sections', { name, display_order: newId - 1 });
+                            newSection.api_id = saved.id;
+                        } catch (err) { console.error('Section create failed:', err); }
                     }
-                    
+
                     saveData();
                     renderSatisfactionView();
                     closeSectionEditModal();
@@ -7457,36 +7585,51 @@
                 sectionFormEl.dataset.initialized = 'true';
             }
             
-            // Task edit form  
+            // Task edit form
             const taskFormEl = document.getElementById('taskEditForm');
             if (taskFormEl && !taskFormEl.dataset.initialized) {
-                taskFormEl.addEventListener('submit', function(e) {
+                taskFormEl.addEventListener('submit', async function(e) {
                     e.preventDefault();
-                    
+
                     const sectionId = parseInt(document.getElementById('taskEditSectionId').value);
                     const taskId = document.getElementById('taskEditId').value;
                     const section = dashboardData.satisfaction.sections.find(s => s.id === sectionId);
-                    
+
                     const taskData = {
                         title: document.getElementById('taskTitle').value,
                         type: document.getElementById('taskType').value,
                         completed: false
                     };
-                    
                     if (taskData.type === 'bonus') {
                         taskData.bonusWeight = parseInt(document.getElementById('taskBonusWeight').value) || 10;
                     }
-                    
+
                     if (taskId) {
                         const task = section.tasks.find(t => t.id === parseInt(taskId));
                         Object.assign(task, taskData);
+                        try {
+                            if (task.api_id) await API.put('/tasks/' + task.api_id, {
+                                title: taskData.title, type: taskData.type,
+                                bonus_weight: taskData.type === 'bonus' ? taskData.bonusWeight : null
+                            });
+                        } catch (err) { console.error('Task update failed:', err); }
                     } else {
                         const newId = section.tasks.length > 0
                             ? Math.max(...section.tasks.map(t => t.id)) + 1
                             : 1;
-                        section.tasks.push({ id: newId, ...taskData });
+                        const newTask = { id: newId, ...taskData };
+                        section.tasks.push(newTask);
+                        try {
+                            const saved = await API.post('/tasks', {
+                                section_id: section.api_id,
+                                title: taskData.title, type: taskData.type,
+                                bonus_weight: taskData.type === 'bonus' ? taskData.bonusWeight : null,
+                                display_order: newId - 1
+                            });
+                            newTask.api_id = saved.id;
+                        } catch (err) { console.error('Task create failed:', err); }
                     }
-                    
+
                     saveData();
                     renderSatisfactionView();
                     closeTaskEditModal();
