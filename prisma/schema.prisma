@@ -1,0 +1,141 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model TaskSection {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  display_order Int      @default(0)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @updatedAt @db.Timestamptz(6)
+
+  tasks Task[]
+
+  @@map("task_sections")
+}
+
+model Task {
+  id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  section_id          String      @db.Uuid
+  section             TaskSection @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  title               String
+  type                String // 'core' | 'bonus'
+  bonus_weight        Int?
+  is_weekday_template Boolean     @default(false)
+  is_weekend_template Boolean     @default(false)
+  display_order       Int         @default(0)
+  created_at          DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime    @updatedAt @db.Timestamptz(6)
+
+  completions TaskCompletion[]
+
+  @@map("tasks")
+}
+
+model DailySnapshot {
+  snapshot_date            DateTime @id @db.Date
+
+  // KPI metrics
+  productivity_pct         Int      @default(0)
+  projects_pct             Int      @default(0)
+  satisfaction_pts         Decimal  @default(0) @db.Decimal(6, 2)
+  week_tracker_pct         Int      @default(0)
+
+  // Business Wheel (7 dimensions)
+  wheel_career             Int      @default(0)
+  wheel_finance            Int      @default(0)
+  wheel_health             Int      @default(0)
+  wheel_spirituality       Int      @default(0)
+  wheel_social             Int      @default(0)
+  wheel_cultural           Int      @default(0)
+  wheel_recreation         Int      @default(0)
+  // wheel_avg_score is computed in application layer
+
+  // Health metrics
+  health_water_liters      Decimal  @default(0) @db.Decimal(4, 2)
+  health_workout_minutes   Int      @default(0)
+  health_sleep_hours       Decimal  @default(0) @db.Decimal(4, 2)
+  health_nutrition_score   Int      @default(0)
+  health_overall_score     Decimal  @default(0) @db.Decimal(5, 2)
+
+  daily_satisfaction_score Decimal  @default(0) @db.Decimal(6, 2)
+
+  created_at               DateTime @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime @updatedAt @db.Timestamptz(6)
+
+  completions TaskCompletion[]
+
+  @@map("daily_snapshots")
+}
+
+model TaskCompletion {
+  snapshot_date DateTime      @db.Date
+  task_id       String        @db.Uuid
+  snapshot      DailySnapshot @relation(fields: [snapshot_date], references: [snapshot_date], onDelete: Cascade)
+  task          Task          @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  completed     Boolean       @default(false)
+
+  @@id([snapshot_date, task_id])
+  @@map("task_completions")
+}
+
+model Project {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String
+  description  String?
+  category     String?
+  status       String   @default("planning")
+  progress_pct Int      @default(0)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @updatedAt @db.Timestamptz(6)
+
+  @@map("projects")
+}
+
+model StrategicFocusItem {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  icon          String   @default("")
+  color         String   @default("#10b981")
+  value_pct     Int      @default(0)
+  display_order Int      @default(0)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @updatedAt @db.Timestamptz(6)
+
+  @@map("strategic_focus_items")
+}
+
+model Goal {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  goal_type     String // 'legacy' | 'objectives2026'
+  title         String
+  description   String?
+  target_value  Decimal  @db.Decimal(15, 4)
+  current_value Decimal  @default(0) @db.Decimal(15, 4)
+  // progress_pct is computed in application layer
+  linked_sector String?
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @updatedAt @db.Timestamptz(6)
+
+  @@map("goals")
+}
+
+model KnowledgeItem {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type         String // 'quote' | 'book' | 'note'
+  quote_text   String?
+  quote_author String?
+  book_title   String?
+  book_author  String?
+  book_status  String?
+  note_title   String?
+  note_content String?
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("knowledge_items")
+}
