@@ -1,0 +1,6 @@
+FROM nginx:alpine
+
+# Simple static site: copy the single HTML file as index
+COPY index_business.html /usr/share/nginx/html/index.html
+
+EXPOSE 80

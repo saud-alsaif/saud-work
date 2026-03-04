@@ -9,6 +9,22 @@
     <!-- PostgreSQL backend via Node/Express API -->
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // If the frontend is hosted separately, rewrite relative /api calls
+        // to the hosted backend URL. Update `API_HOSTED` if you change backend URL.
+        (function(){
+            const API_HOSTED = 'https://saud-work4.onrender.com';
+            const _fetch = window.fetch.bind(window);
+            window.fetch = function(input, init){
+                try{
+                    if(typeof input === 'string' && input.startsWith('/api')){
+                        input = API_HOSTED + input;
+                    }
+                }catch(e){/* ignore */}
+                return _fetch(input, init);
+            };
+        })();
+    </script>
     <style>
         * {
             margin: 0;

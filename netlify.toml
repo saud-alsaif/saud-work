@@ -1,0 +1,12 @@
+[build]
+  # For this repo we serve a single static HTML file. No build step required.
+  command = ""
+  publish = "."
+
+[[redirects]]
+  # Serve index_business.html for SPA-style routes if needed.
+  from = "/*"
+  to = "/index_business.html"
+  status = 200
+
+## More info: https://ntl.fyi/file-based-build-config
